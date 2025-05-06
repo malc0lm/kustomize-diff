@@ -87,13 +87,19 @@ func main() {
 
 	// Add inline patches from the root kustomization
 	for _, patch := range kust.Patches {
-		// Add as an inline patch
+		if patch.Path != "" {
+			// Make path relative to root kustomization
+			patch.Path = filepath.Join(kustomizationDir, string(patch.Path))
+		}
 		allPatches = append(allPatches, patch)
 	}
 
 	// Add JSON patches from the root kustomization
 	for _, patch := range kust.PatchesJson6902 {
-		// Add as an inline patch
+		if patch.Path != "" {
+			// Make path relative to root kustomization
+			patch.Path = filepath.Join(kustomizationDir, string(patch.Path))
+		}
 		allPatches = append(allPatches, types.Patch{
 			Target: patch.Target,
 			Patch:  string(patch.Patch),
@@ -157,12 +163,11 @@ func main() {
 		// Apply patch
 		var patchData []byte
 		if patch.Path != "" {
-			// File-based patch - make path relative to kustomization directory
-			patchPath := filepath.Join(kustomizationDir, string(patch.Path))
+			// File-based patch
 			var err error
-			patchData, err = fs.ReadFile(patchPath)
+			patchData, err = fs.ReadFile(patch.Path)
 			if err != nil {
-				fmt.Printf("Warning: Reading patch %s failed: %v\n", patchPath, err)
+				fmt.Printf("Warning: Reading patch %s failed: %v\n", patch.Path, err)
 				continue
 			}
 		} else {
@@ -324,6 +329,7 @@ func main() {
 		}
 		fmt.Printf("New: %v\n", source.New)
 	}
+
 	fmt.Printf("\n=== Final Output ===\n")
 	fmt.Println(string(yml))
 }
@@ -375,7 +381,19 @@ func processKustomization(fs filesys.FileSystem, k *krusty.Kustomizer, dir strin
 		*allPatches = append(*allPatches, patch)
 	}
 
-	// Process base resources first
+	// Add JSON patches from this kustomization
+	for _, patch := range kust.PatchesJson6902 {
+		if patch.Path != "" {
+			// Make path relative to this kustomization
+			patch.Path = filepath.Join(dir, string(patch.Path))
+		}
+		*allPatches = append(*allPatches, types.Patch{
+			Target: patch.Target,
+			Patch:  string(patch.Patch),
+		})
+	}
+
+	// Process resources
 	for _, baseDir := range kust.Resources {
 		absBaseDir := filepath.Join(dir, baseDir)
 		processResourceOrKustomization(fs, k, absBaseDir, allPatches, allResources)
