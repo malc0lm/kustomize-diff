@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"flag"
+
 	"github.com/r3labs/diff/v3"
 	"sigs.k8s.io/kustomize/api/filesys"
 	"sigs.k8s.io/kustomize/api/krusty"
@@ -28,12 +30,18 @@ type FieldSource struct {
 var fieldSources []FieldSource
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <kustomization-dir>\n", os.Args[0])
+	// Define command line flags
+	var showFinalOutput bool
+	flag.BoolVar(&showFinalOutput, "show-final", false, "Show the final kustomize output")
+	flag.Parse()
+
+	// Check if we have the required kustomization directory argument
+	if flag.NArg() != 1 {
+		fmt.Fprintf(os.Stderr, "Usage: %s [-show-final] <kustomization-dir>\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	kustomizationDir := os.Args[1]
+	kustomizationDir := flag.Arg(0)
 	fs := filesys.MakeFsOnDisk()
 
 	// 1. Build the final kustomization
@@ -320,18 +328,49 @@ func main() {
 
 	// Print field sources
 	fmt.Printf("\n=== Field Changes ===\n")
+
+	// Group changes by resource
+	resourceChanges := make(map[string][]FieldSource)
 	for _, source := range fieldSources {
-		fmt.Printf("\nResource: %s\n", source.Resource)
-		fmt.Printf("Path: %v\n", source.Path)
-		fmt.Printf("Source: %s\n", source.Source)
-		if source.Original != nil {
-			fmt.Printf("Original: %v\n", source.Original)
-		}
-		fmt.Printf("New: %v\n", source.New)
+		resourceChanges[source.Resource] = append(resourceChanges[source.Resource], source)
 	}
 
-	fmt.Printf("\n=== Final Output ===\n")
-	fmt.Println(string(yml))
+	// Print changes grouped by resource
+	for resource, changes := range resourceChanges {
+		fmt.Printf("\nResource: %s\n", resource)
+		fmt.Printf("Changes:\n")
+		for _, change := range changes {
+			// Format the path in a more readable way
+			pathStr := strings.Join(change.Path, " → ")
+
+			// Format the source file name only (without full path)
+			sourceFile := change.Source
+			if sourceFile != "" {
+				sourceFile = filepath.Base(sourceFile)
+			} else {
+				sourceFile = "inline patch"
+			}
+
+			fmt.Printf("  • Field: %s\n", pathStr)
+			fmt.Printf("    Modified by: %s\n", sourceFile)
+
+			// Format the values in a more readable way
+			if change.Original != nil {
+				fmt.Printf("    Original: %v\n", change.Original)
+			}
+			if change.New != nil {
+				fmt.Printf("    New: %v\n", change.New)
+			} else {
+				fmt.Printf("    Removed\n")
+			}
+		}
+	}
+
+	// Only show final output if flag is set
+	if showFinalOutput {
+		fmt.Printf("\n=== Final Output ===\n")
+		fmt.Println(string(yml))
+	}
 }
 
 func processResourceOrKustomization(fs filesys.FileSystem, k *krusty.Kustomizer, path string, allPatches *[]types.Patch, allResources map[string]*resource.Resource) {
